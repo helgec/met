@@ -14,7 +14,7 @@ URL = "https://api.met.no/weatherapi/metalerts/2.0/current.json"
 SEEN_FILE = os.path.join(os.path.dirname(__file__), "seen_alerts.json")
 
 # Kun Oransje og Rød sendes til desken (filtrerer bort gult)
-ALLOWED_COLORS = ["Orange", "Red"]
+ALLOWED_COLORS = ["Yellow", "Orange", "Red"]
 
 # Fargekoder for Slack (sidefelt)
 COLOR_MAP = {
