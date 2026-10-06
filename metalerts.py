@@ -1,7 +1,12 @@
 import os
 import json
+import sys
 import requests
 from dotenv import load_dotenv
+
+# Importer status-hjelperen
+sys.path.append("/home/nrknyheter")
+from status_helper import update_status
 
 # Last inn variabler fra lokal .env-fil på Pi-en
 load_dotenv()
@@ -18,7 +23,7 @@ ALLOWED_COLORS = ["Orange", "Red"]
 
 # Fargekoder for Slack (sidefelt)
 COLOR_MAP = {
-    "Red": "#E02424",     # Ekstremt farevarsel
+    "Red": "#E02424",      # Ekstremt farevarsel
     "Orange": "#FF8A00",  # Svært alvorlig farevarsel
 }
 
@@ -68,7 +73,9 @@ def save_seen(seen_ids):
 
 def send_slack_notification(props):
     if not SLACK_WEBHOOK_URL:
-        raise ValueError("SLACK_WEBHOOK_URL mangler i .env-filen!")
+        err_msg = "SLACK_WEBHOOK_URL mangler i .env-filen!"
+        update_status("metalerts", "Ekstremvær-overvåker", status="ERROR", error_msg=err_msg)
+        raise ValueError(err_msg)
 
     color_raw = props.get("riskMatrixColor", "Orange")
     color_name = COLOR_NO.get(color_raw, color_raw.upper())
@@ -132,20 +139,35 @@ def send_slack_notification(props):
         ]
     }
 
-    response = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
-    response.raise_for_status()
+    try:
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        err_msg = f"Feil ved sending til Slack: {e}"
+        print(err_msg)
+        update_status("metalerts", "Ekstremvær-overvåker", status="ERROR", error_msg=err_msg)
+        raise
 
 def check_metalerts():
+    if not SLACK_WEBHOOK_URL:
+        err_msg = "Kritisk feil: SLACK_WEBHOOK_URL mangler i miljøvariablene."
+        print(err_msg)
+        update_status("metalerts", "Ekstremvær-overvåker", status="ERROR", error_msg=err_msg)
+        sys.exit(1)
+
     try:
         response = requests.get(URL, headers=HEADERS, timeout=10)
         response.raise_for_status()
         data = response.json()
     except Exception as e:
-        print(f"Nettverks- eller parsing-feil fra MET: {e}")
+        err_msg = f"Nettverks- eller parsing-feil fra MET: {e}"
+        print(err_msg)
+        update_status("metalerts", "Ekstremvær-overvåker", status="ERROR", error_msg=err_msg)
         return
 
     seen_ids = load_seen()
     new_seen_ids = set(seen_ids)
+    feil_under_varsling = False
 
     for feature in data.get("features", []):
         props = feature.get("properties", {})
@@ -163,8 +185,13 @@ def check_metalerts():
                 new_seen_ids.add(alert_id)
             except Exception as e:
                 print(f"Feil ved sending av alert {alert_id} til Slack: {e}")
+                feil_under_varsling = True
 
     save_seen(new_seen_ids)
+    
+    # Registrer vellykket sjekk dersom ingen kritiske feil oppsto underveis
+    if not feil_under_varsling:
+        update_status("metalerts", "Ekstremvær-overvåker", status="OK")
 
 if __name__ == "__main__":
     check_metalerts()
